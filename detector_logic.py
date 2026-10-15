@@ -13,7 +13,8 @@ import math # For frame calculations
 # --- 1. CONFIGURATION ---
 
 INPUT_DIM = 512
-SAMPLE_RATE_SECONDS = 0.5 # Sample 2 frames per second
+SAMPLE_RATE_SECONDS = 0.5 # Sample up to 2 frames per second
+MAX_FRAMES_PER_VIDEO = 20 # Cap maximum frames to keep video analysis fast (<3s on CPU)
 
 # --- IMPORTANT CHANGE ---
 # The server will look for this file in the SAME directory.
@@ -93,6 +94,29 @@ def run_inference_on_image(pil_image, vlm, processor, classifier, device):
         print(f"\nWarning: Error during frame inference: {e}")
         return 0.0
 
+def run_inference_on_batch(pil_images, vlm, processor, classifier, device):
+    """
+    Runs batch inference on a list of PIL.Image objects.
+    Significantly faster than one-by-one inference on CPU/GPU.
+    """
+    if not pil_images:
+        return []
+    try:
+        inputs = processor(text=None, images=pil_images, return_tensors="pt")
+        inputs = {k: v.to(device) for k, v in inputs.items()}
+
+        with torch.no_grad():
+            image_features = vlm.get_image_features(**inputs)
+            outputs = classifier(image_features)
+            probs = torch.sigmoid(outputs).squeeze(-1)
+            
+            if probs.ndim == 0:
+                return [probs.item()]
+            return probs.cpu().numpy().tolist()
+    except Exception as e:
+        print(f"\nWarning: Error during batch inference: {e}. Falling back to sequential inference.")
+        return [run_inference_on_image(img, vlm, processor, classifier, device) for img in pil_images]
+
 # --- 5. UPDATED PREDICTION FUNCTIONS (Return JSON) ---
 
 def get_prediction_for_image_file(image_path, vlm, processor, classifier, device):
@@ -106,7 +130,7 @@ def get_prediction_for_image_file(image_path, vlm, processor, classifier, device
         
         is_ai = prediction_num > 0.5
         label = "AI" if is_ai else "Real"
-        confidence = prediction_num if is_ai else 1 - prediction_num
+        confidence = float(prediction_num if is_ai else 1 - prediction_num)
         
         # Return a dictionary
         return {
@@ -121,6 +145,7 @@ def get_prediction_for_image_file(image_path, vlm, processor, classifier, device
 def process_video_file(video_path, vlm, processor, classifier, device):
     """
     (UPDATED) Runs the full pipeline for a *video file*.
+    Samples up to MAX_FRAMES_PER_VIDEO frames and runs batched inference.
     Returns a dictionary (JSON).
     """
     try:
@@ -128,16 +153,23 @@ def process_video_file(video_path, vlm, processor, classifier, device):
         if not cap.isOpened():
             return {"error": "Could not open video file."}
 
-        frame_probabilities = []
         fps = cap.get(cv2.CAP_PROP_FPS)
-        
         if fps == 0 or fps is None: 
             print(f"\nWarning: Could not get FPS for {video_path}. Assuming 30.")
             fps = 30
             
-        frame_skip = int(round(fps * SAMPLE_RATE_SECONDS))
-        if frame_skip == 0: frame_skip = 1
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if total_frames > 0 and total_frames > MAX_FRAMES_PER_VIDEO:
+            # Spread frames across the entire video duration
+            ideal_skip = max(1, total_frames // MAX_FRAMES_PER_VIDEO)
+            time_skip = int(round(fps * SAMPLE_RATE_SECONDS)) if fps > 0 else 15
+            frame_skip = max(ideal_skip, time_skip)
+        else:
+            frame_skip = int(round(fps * SAMPLE_RATE_SECONDS))
+            if frame_skip == 0:
+                frame_skip = 1
             
+        sampled_pil_images = []
         frame_count = 0
 
         while cap.isOpened():
@@ -149,9 +181,10 @@ def process_video_file(video_path, vlm, processor, classifier, device):
                 try:
                     img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     pil_img = Image.fromarray(img_rgb)
+                    sampled_pil_images.append(pil_img)
                     
-                    prob = run_inference_on_image(pil_img, vlm, processor, classifier, device)
-                    frame_probabilities.append(prob)
+                    if len(sampled_pil_images) >= MAX_FRAMES_PER_VIDEO:
+                        break
                 except Exception as frame_e:
                     print(f"\nWarning: Skipped a frame in {video_path} due to error: {frame_e}")
 
@@ -159,13 +192,21 @@ def process_video_file(video_path, vlm, processor, classifier, device):
         
         cap.release()
 
-        if not frame_probabilities:
+        if not sampled_pil_images:
             return {"error": "Video was empty or no frames could be read."}
 
-        max_prob = np.max(frame_probabilities)
+        # Run fast batched inference
+        frame_probabilities = run_inference_on_batch(
+            sampled_pil_images, vlm, processor, classifier, device
+        )
+
+        if not frame_probabilities:
+            return {"error": "Failed to analyze video frames."}
+
+        max_prob = float(np.max(frame_probabilities))
         is_ai = max_prob > 0.5
         label = "AI" if is_ai else "Real"
-        confidence = max_prob if is_ai else 1 - max_prob
+        confidence = float(max_prob if is_ai else 1 - max_prob)
         
         # Return a dictionary
         return {

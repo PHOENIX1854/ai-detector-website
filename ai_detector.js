@@ -118,7 +118,7 @@ async function handleDetect() {
 
     // 2. Send it to your Python backend
     try {
-        const response = await fetch('http://127.0.0.1:5000/api/detect', {
+        const response = await fetch('/api/detect', {
             method: 'POST',
             body: formData
             // No 'Content-Type' header needed, 'fetch' sets it for FormData
