@@ -167,7 +167,7 @@ function displayResult(data) {
             <div class="flex flex-col md:flex-row md:items-center md:justify-between">
                 <div>
                     <span class="text-sm font-medium uppercase">${label}</span>
-                    <p class="text-3xl font-bold mt-1">${confidencePercent}% Confidence</p>
+                    <p class="text-3xl font-bold mt-1">${confidencePercent}% Confidence</p> 
                 </div>
                 <div class="mt-4 md:mt-0 md:ml-6 flex-shrink-0">
                     <div class="relative w-24 h-24">
@@ -178,7 +178,7 @@ function displayResult(data) {
                                 r="15.9155" cx="18" cy="18" />
                             <circle class="${barColor}"
                                 stroke="currentColor" stroke-width="4" fill="transparent"
-                                stroke-dasharray="${confidencePercent}, 100"
+                                stroke-dasharray="${confidencePercent}, 100" 
                                 stroke-dashoffset="0"
                                 r="15.9155" cx="18" cy="18" />
                         </svg>

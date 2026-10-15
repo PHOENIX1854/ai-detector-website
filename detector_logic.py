@@ -104,7 +104,7 @@ def get_prediction_for_image_file(image_path, vlm, processor, classifier, device
         img = Image.open(image_path).convert("RGB")
         prediction_num = run_inference_on_image(img, vlm, processor, classifier, device)
         
-        is_ai = prediction_num > 0.5
+        is_ai = prediction_num > 0.7
         label = "AI" if is_ai else "Real"
         confidence = prediction_num if is_ai else 1 - prediction_num
         
