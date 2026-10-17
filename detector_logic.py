@@ -1,6 +1,7 @@
 import sys
 import os
 import glob
+import base64
 import torch
 import torch.nn as nn
 import numpy as np
@@ -50,7 +51,7 @@ def load_models(device):
     Loads and returns the VLM, processor, and classifier models.
     """
     print(f"Loading VLM: {VLM_MODEL_NAME}...")
-    vlm_model = CLIPModel.from_pretrained(VLM_MODEL_NAME).to(device)
+    vlm_model = CLIPModel.from_pretrained(VLM_MODEL_NAME, attn_implementation="eager").to(device)
     processor = CLIPProcessor.from_pretrained(VLM_MODEL_NAME)
     vlm_model.eval()
 
@@ -117,12 +118,89 @@ def run_inference_on_batch(pil_images, vlm, processor, classifier, device):
         print(f"\nWarning: Error during batch inference: {e}. Falling back to sequential inference.")
         return [run_inference_on_image(img, vlm, processor, classifier, device) for img in pil_images]
 
-# --- 5. UPDATED PREDICTION FUNCTIONS (Return JSON) ---
+# --- 5. ATTENTION HEATMAP GENERATOR ---
+
+def generate_attention_heatmap(pil_image, vlm, processor, device):
+    """
+    Computes an Attention Rollout heatmap across all 12 ViT layers.
+    Maps which of the 49 image patches had the highest influence on the model.
+    Returns:
+        A dict with data URLs for blended heatmap, raw heatmap, and original image,
+        or None if generation fails.
+    """
+    try:
+        inputs = processor(text=None, images=pil_image, return_tensors="pt")
+        inputs = {k: v.to(device) for k, v in inputs.items()}
+
+        with torch.no_grad():
+            vision_outputs = vlm.vision_model(**inputs, output_attentions=True)
+            attentions = vision_outputs.attentions
+
+        if not attentions:
+            return None
+
+        # Rollout across all 12 layers
+        # Each layer attention matrix has shape [1, num_heads, 50, 50]
+        rollout = torch.eye(50, device=device)
+        for layer_attn in attentions:
+            attn_heads_avg = layer_attn[0].mean(dim=0)
+            attn_with_residual = 0.5 * attn_heads_avg + 0.5 * torch.eye(50, device=device)
+            attn_normalized = attn_with_residual / attn_with_residual.sum(dim=-1, keepdim=True)
+            rollout = torch.matmul(attn_normalized, rollout)
+
+        # Extract attention from CLS token (index 0) to 49 patches (indices 1 to 50)
+        mask = rollout[0, 1:].reshape(7, 7).cpu().numpy()
+        mask_min = float(mask.min())
+        mask_max = float(mask.max())
+        mask_norm = (mask - mask_min) / (mask_max - mask_min + 1e-8)
+
+        # Cap display size to 800px max dimension for fast network transmission
+        orig_w, orig_h = pil_image.size
+        max_dim = 800
+        if max(orig_w, orig_h) > max_dim:
+            scale = max_dim / max(orig_w, orig_h)
+            display_w = max(1, int(orig_w * scale))
+            display_h = max(1, int(orig_h * scale))
+        else:
+            display_w, display_h = orig_w, orig_h
+
+        pil_resized = pil_image.resize((display_w, display_h), Image.Resampling.BILINEAR)
+        orig_cv = cv2.cvtColor(np.array(pil_resized), cv2.COLOR_RGB2BGR)
+
+        # Upsample 7x7 attention mask to display size with smooth bicubic interpolation
+        heatmap_resized = cv2.resize(mask_norm, (display_w, display_h), interpolation=cv2.INTER_CUBIC)
+        heatmap_uint8 = np.uint8(255 * np.clip(heatmap_resized, 0, 1))
+
+        # Apply JET colormap (blue = low attention, green/yellow = medium, red = peak attention)
+        heatmap_color = cv2.applyColorMap(heatmap_uint8, cv2.COLORMAP_JET)
+
+        # Blended image (55% original photo + 45% heatmap overlay)
+        blended = cv2.addWeighted(orig_cv, 0.55, heatmap_color, 0.45, 0)
+
+        # Encode to JPEG
+        _, buf_blended = cv2.imencode('.jpg', blended, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        _, buf_heat = cv2.imencode('.jpg', heatmap_color, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        _, buf_orig = cv2.imencode('.jpg', orig_cv, [cv2.IMWRITE_JPEG_QUALITY, 85])
+
+        blended_b64 = 'data:image/jpeg;base64,' + base64.b64encode(buf_blended).decode('utf-8')
+        raw_heatmap_b64 = 'data:image/jpeg;base64,' + base64.b64encode(buf_heat).decode('utf-8')
+        original_b64 = 'data:image/jpeg;base64,' + base64.b64encode(buf_orig).decode('utf-8')
+
+        return {
+            "heatmap_blended": blended_b64,
+            "heatmap_raw": raw_heatmap_b64,
+            "original_image": original_b64
+        }
+    except Exception as e:
+        print(f"\nWarning: Error generating attention heatmap: {e}")
+        return None
+
+# --- 6. PREDICTION FUNCTIONS WITH EXPLANATIONS & HEATMAP ---
 
 def get_prediction_for_image_file(image_path, vlm, processor, classifier, device):
     """
     Runs the full pipeline for a single *image file*
-    and returns a dictionary (JSON).
+    and returns a dictionary (JSON) with label, confidence, heatmap, and explanation.
     """
     try:
         img = Image.open(image_path).convert("RGB")
@@ -132,21 +210,39 @@ def get_prediction_for_image_file(image_path, vlm, processor, classifier, device
         label = "AI" if is_ai else "Real"
         confidence = float(prediction_num if is_ai else 1 - prediction_num)
         
-        # Return a dictionary
-        return {
+        # Generate the visual attention heatmap
+        heatmap_data = generate_attention_heatmap(img, vlm, processor, device)
+        
+        if is_ai:
+            explanation = (
+                f"The model detected synthetic patterns with {confidence * 100:.1f}% confidence. "
+                "The warm/red zones in the heatmap highlight the specific image patches that triggered the strongest AI signals."
+            )
+        else:
+            explanation = (
+                f"The model classified this image as Real with {confidence * 100:.1f}% confidence. "
+                "Visual attention was naturally distributed without localized synthetic anomalies typical of generated media."
+            )
+
+        result = {
             "label": label,
             "confidence": confidence,
-            "filename": os.path.basename(image_path)
+            "filename": os.path.basename(image_path),
+            "explanation": explanation
         }
+        if heatmap_data:
+            result.update(heatmap_data)
+            
+        return result
         
     except Exception as e:
         return {"error": f"Could not process file. {e}"}
 
 def process_video_file(video_path, vlm, processor, classifier, device):
     """
-    (UPDATED) Runs the full pipeline for a *video file*.
-    Samples up to MAX_FRAMES_PER_VIDEO frames and runs batched inference.
-    Returns a dictionary (JSON).
+    Runs the full pipeline for a *video file*.
+    Samples up to MAX_FRAMES_PER_VIDEO frames, runs batched inference,
+    and generates an attention heatmap for the key frame with the strongest signal.
     """
     try:
         cap = cv2.VideoCapture(video_path)
@@ -203,18 +299,39 @@ def process_video_file(video_path, vlm, processor, classifier, device):
         if not frame_probabilities:
             return {"error": "Failed to analyze video frames."}
 
-        max_prob = float(np.max(frame_probabilities))
+        # Identify the keyframe with the peak probability (most suspicious frame)
+        max_idx = int(np.argmax(frame_probabilities))
+        max_prob = float(frame_probabilities[max_idx])
         is_ai = max_prob > 0.5
         label = "AI" if is_ai else "Real"
         confidence = float(max_prob if is_ai else 1 - max_prob)
         
-        # Return a dictionary
-        return {
+        # Generate heatmap for the key frame
+        best_frame = sampled_pil_images[max_idx]
+        heatmap_data = generate_attention_heatmap(best_frame, vlm, processor, device)
+
+        if is_ai:
+            explanation = (
+                f"Video flagged as AI-generated based on peak detection in sampled frame #{max_idx + 1} "
+                f"({max_prob * 100:.1f}% AI probability). The heatmap highlights the visual focus areas in that key frame."
+            )
+        else:
+            explanation = (
+                f"Video classified as Real with {confidence * 100:.1f}% confidence across {len(frame_probabilities)} sampled frames."
+            )
+
+        result = {
             "label": label,
             "confidence": confidence,
             "frames_sampled": len(frame_probabilities),
-            "filename": os.path.basename(video_path)
+            "keyframe_index": max_idx + 1,
+            "filename": os.path.basename(video_path),
+            "explanation": explanation
         }
+        if heatmap_data:
+            result.update(heatmap_data)
+
+        return result
 
     except Exception as e:
         return {"error": f"Could not process video. {e}"}
