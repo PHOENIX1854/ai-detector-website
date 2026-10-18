@@ -1,4 +1,5 @@
 import os
+import inspect
 import tempfile
 import base64
 from io import BytesIO
@@ -153,25 +154,35 @@ def blend_images(orig_pil: Image.Image, heat_pil: Image.Image, alpha_pct: int) -
     return Image.fromarray(blended)
 
 def render_image(img, caption=None):
-    """Renders image compatibly across Streamlit versions."""
+    """Renders image compatibly across Streamlit versions without type checker or runtime errors."""
+    params = inspect.signature(st.image).parameters
+    kwargs = {}
+    if "use_container_width" in params:
+        kwargs["use_container_width"] = True
+    elif "use_column_width" in params:
+        kwargs["use_column_width"] = True
+    
     try:
-        st.image(img, caption=caption, width="stretch")
+        st.image(img, caption=caption, **kwargs)
     except TypeError:
         try:
-            st.image(img, caption=caption, use_container_width=True)
+            # Fallback for Streamlit >= 1.41+ where width="stretch" is used
+            st.image(img, caption=caption, width="stretch")
         except TypeError:
-            try:
-                st.image(img, caption=caption, use_column_width=True)
-            except TypeError:
-                st.image(img, caption=caption)
+            st.image(img, caption=caption)
 
 def full_width_button(label, key=None, disabled=False):
     """Renders a full-width button compatibly across Streamlit versions."""
+    params = inspect.signature(st.button).parameters
+    kwargs = {}
+    if "use_container_width" in params:
+        kwargs["use_container_width"] = True
+
     try:
-        return st.button(label, key=key, disabled=disabled, width="stretch")
+        return st.button(label, key=key, disabled=disabled, **kwargs)
     except TypeError:
         try:
-            return st.button(label, key=key, disabled=disabled, use_container_width=True)
+            return st.button(label, key=key, disabled=disabled, width="stretch")
         except TypeError:
             return st.button(label, key=key, disabled=disabled)
 
@@ -348,49 +359,25 @@ if uploaded_file is not None:
         col_verdict, col_details = st.columns([1, 1], gap="large")
 
         label = data.get("label", "Real")
-        confidence = data.get("confidence", 0.0)
-        confidence_percent = confidence * 100.0
-        threshold = data.get("threshold", 0.55)
         frames_sampled = data.get("frames_sampled")
         keyframe_index = data.get("keyframe_index")
 
         is_ai = label.lower() == "ai"
+        display_label = "AI" if is_ai else "REAL"
 
-        # Colors matching ai_detector.js
-        card_bg = "#fef2f2" if is_ai else "#ecfdf5"
-        card_border = "#fecaca" if is_ai else "#a7f3d0"
-        text_color = "#991b1b" if is_ai else "#065f46"
-        bar_color = "#dc2626" if is_ai else "#059669"
-
-        frames_tag = ""
-        if frames_sampled:
-            key_text = f" (Key #{keyframe_index})" if keyframe_index else ""
-            frames_tag = f"<span>•</span><span>{frames_sampled} frames{key_text}</span>"
+        # Simple Red box for AI, Green box for REAL
+        box_bg = "#dc2626" if is_ai else "#16a34a"
+        box_border = "#b91c1c" if is_ai else "#15803d"
+        card_bg = "#fef2f2" if is_ai else "#f0fdf4"
+        card_border = "#fecaca" if is_ai else "#bbf7d0"
 
         with col_verdict:
             verdict_html = (
-                f'<div style="background-color: {card_bg}; border: 1px solid {card_border}; padding: 1.5rem; border-radius: 0.75rem; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); margin-bottom: 1.5rem; min-height: 155px; display: flex; flex-direction: column; justify-content: space-between;">'
-                f'<div style="display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 1rem;">'
-                f'<div>'
-                f'<div style="font-size: 1.875rem; font-weight: 800; color: #111827; line-height: 1.25;">'
-                f'{confidence_percent:.1f}% <span style="font-size: 1rem; font-weight: 400; color: #6b7280;">Confidence</span>'
-                f'</div>'
-                f'<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-top: 0.5rem; font-size: 0.75rem; color: #4b5563; font-weight: 500;">'
-                f'<span style="background: rgba(255,255,255,0.9); border: 1px solid #d1d5db; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; color: #374151;">TTA Stabilized</span>'
-                f'<span>•</span>'
-                f'<span style="font-size: 11px; color: #6b7280;">Threshold: {(threshold * 100):.0f}%</span>'
-                f'{frames_tag}'
-                f'</div>'
-                f'</div>'
-                f'<div style="position: relative; width: 80px; height: 80px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;">'
-                f'<svg viewBox="0 0 36 36" style="width: 100%; height: 100%; transform: rotate(-90deg);">'
-                f'<circle stroke="#e5e7eb" stroke-width="3.5" fill="transparent" r="15.9155" cx="18" cy="18" />'
-                f'<circle stroke="{bar_color}" stroke-width="3.5" stroke-linecap="round" fill="transparent" stroke-dasharray="{confidence_percent:.1f}, 100" stroke-dashoffset="0" r="15.9155" cx="18" cy="18" />'
-                f'</svg>'
-                f'<div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; color: {text_color};">'
-                f'{label}'
-                f'</div>'
-                f'</div>'
+                f'<div style="background-color: {card_bg}; border: 1px solid {card_border}; padding: 1.5rem; border-radius: 0.75rem; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); margin-bottom: 1.5rem; min-height: 155px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;">'
+                f'<div style="background-color: {box_bg}; border: 2px solid {box_border}; border-radius: 0.5rem; padding: 0.75rem 3rem; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(0,0,0,0.08);">'
+                f'<span style="font-size: 2.25rem; font-weight: 900; color: #ffffff; letter-spacing: 0.1em; line-height: 1;">'
+                f'{display_label}'
+                f'</span>'
                 f'</div>'
                 f'</div>'
             )

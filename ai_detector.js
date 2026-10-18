@@ -156,40 +156,16 @@ function displayResult(data) {
     const { label, confidence, frames_sampled, keyframe_index, heatmap_raw, original_image, threshold, tta_enabled } = data;
 
     const isAI = label.toLowerCase() === 'ai';
-    const confidencePercent = (confidence * 100).toFixed(1);
-
+    const displayLabel = isAI ? 'AI' : 'REAL';
     const cardBg = isAI ? 'bg-red-50 border-red-200' : 'bg-emerald-50 border-emerald-200';
-    const textColor = isAI ? 'text-red-900' : 'text-emerald-900';
-    const barColor = isAI ? 'text-red-600' : 'text-emerald-600';
+    const boxBg = isAI ? 'bg-red-600 border-red-700' : 'bg-emerald-600 border-emerald-700';
 
     let html = `
         <div class="space-y-6">
             <!-- Verdict Card -->
-            <div class="${cardBg} border p-6 rounded-xl shadow-sm">
-                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                    <div>
-                        <p class="text-3xl font-extrabold text-gray-900">${confidencePercent}% <span class="text-base font-normal text-gray-500">Confidence</span></p> 
-                        
-                        <div class="flex flex-wrap items-center gap-2 mt-2 text-xs text-gray-600 font-medium">
-                            <span class="bg-white/90 border border-gray-300 px-2 py-0.5 rounded text-[11px] font-semibold text-gray-700 shadow-2xs">TTA Stabilized</span>
-                            <span>•</span>
-                            <span class="text-[11px] text-gray-500">Threshold: ${(threshold ? threshold * 100 : 55).toFixed(0)}%</span>
-                            ${frames_sampled ? `<span>•</span><span>${frames_sampled} frames${keyframe_index ? ` (Key #${keyframe_index})` : ''}</span>` : ''}
-                        </div>
-                    </div>
-                    <div class="flex-shrink-0 flex items-center justify-center">
-                        <div class="relative w-20 h-20">
-                            <!-- Circular progress meter -->
-                            <svg class="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
-                                <circle class="text-gray-200" stroke="currentColor" stroke-width="3.5" fill="transparent" r="15.9155" cx="18" cy="18" />
-                                <circle class="${barColor}" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" fill="transparent"
-                                    stroke-dasharray="${confidencePercent}, 100" stroke-dashoffset="0" r="15.9155" cx="18" cy="18" />
-                            </svg>
-                            <div class="absolute inset-0 flex items-center justify-center text-sm font-bold ${textColor}">
-                                ${label}
-                            </div>
-                        </div>
-                    </div>
+            <div class="${cardBg} border p-6 rounded-xl shadow-sm flex items-center justify-center text-center min-h-[140px]">
+                <div class="${boxBg} border-2 text-white font-black text-3xl px-12 py-3 rounded-lg shadow-sm tracking-wider">
+                    ${displayLabel}
                 </div>
             </div>
     `;
