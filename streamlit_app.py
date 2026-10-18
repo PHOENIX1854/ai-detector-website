@@ -155,12 +155,25 @@ def blend_images(orig_pil: Image.Image, heat_pil: Image.Image, alpha_pct: int) -
 def render_image(img, caption=None):
     """Renders image compatibly across Streamlit versions."""
     try:
-        st.image(img, caption=caption, use_container_width=True)
+        st.image(img, caption=caption, width="stretch")
     except TypeError:
         try:
-            st.image(img, caption=caption, use_column_width=True)
+            st.image(img, caption=caption, use_container_width=True)
         except TypeError:
-            st.image(img, caption=caption)
+            try:
+                st.image(img, caption=caption, use_column_width=True)
+            except TypeError:
+                st.image(img, caption=caption)
+
+def full_width_button(label, key=None, disabled=False):
+    """Renders a full-width button compatibly across Streamlit versions."""
+    try:
+        return st.button(label, key=key, disabled=disabled, width="stretch")
+    except TypeError:
+        try:
+            return st.button(label, key=key, disabled=disabled, use_container_width=True)
+        except TypeError:
+            return st.button(label, key=key, disabled=disabled)
 
 # --- CACHED MODEL LOADER ---
 @st.cache_resource(show_spinner="Loading AI models... (This may take a moment)")
@@ -260,15 +273,15 @@ if uploaded_file is not None:
         # Preset Quick Buttons
         b_col1, b_col2, b_col3 = st.columns(3)
         with b_col1:
-            if st.button("Original (0%)", use_container_width=True):
+            if full_width_button("Original (0%)", key="preset_orig_img"):
                 set_opacity(0)
                 st.rerun()
         with b_col2:
-            if st.button("Blended (50%)", use_container_width=True):
+            if full_width_button("Blended (50%)", key="preset_blend_img"):
                 set_opacity(50)
                 st.rerun()
         with b_col3:
-            if st.button("Heatmap (100%)", use_container_width=True):
+            if full_width_button("Heatmap (100%)", key="preset_heat_img"):
                 set_opacity(100)
                 st.rerun()
 
@@ -301,15 +314,15 @@ if uploaded_file is not None:
 
         b_col1, b_col2, b_col3 = st.columns(3)
         with b_col1:
-            if st.button("Original (0%)", use_container_width=True):
+            if full_width_button("Original (0%)", key="preset_orig_vid"):
                 set_opacity(0)
                 st.rerun()
         with b_col2:
-            if st.button("Blended (50%)", use_container_width=True):
+            if full_width_button("Blended (50%)", key="preset_blend_vid"):
                 set_opacity(50)
                 st.rerun()
         with b_col3:
-            if st.button("Heatmap (100%)", use_container_width=True):
+            if full_width_button("Heatmap (100%)", key="preset_heat_vid"):
                 set_opacity(100)
                 st.rerun()
 
@@ -412,7 +425,7 @@ if uploaded_file is not None:
     st.write("")
 
     # 3. Detect Button (BELOW Preview and Results) - full width
-    detect_clicked = st.button("Detect", key="detect_btn", use_container_width=True)
+    detect_clicked = full_width_button("Detect", key="detect_btn")
 
     # If Detect clicked, run inference
     if detect_clicked:
@@ -444,4 +457,4 @@ if uploaded_file is not None:
 
 else:
     # When no file uploaded, show disabled Detect button - full width
-    st.button("Detect", key="detect_btn_disabled", disabled=True, use_container_width=True)
+    full_width_button("Detect", key="detect_btn_disabled", disabled=True)
