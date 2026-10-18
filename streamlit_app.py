@@ -155,9 +155,12 @@ def blend_images(orig_pil: Image.Image, heat_pil: Image.Image, alpha_pct: int) -
 def render_image(img, caption=None):
     """Renders image compatibly across Streamlit versions."""
     try:
-        st.image(img, caption=caption, use_column_width=True)
+        st.image(img, caption=caption, use_container_width=True)
     except TypeError:
-        st.image(img, caption=caption)
+        try:
+            st.image(img, caption=caption, use_column_width=True)
+        except TypeError:
+            st.image(img, caption=caption)
 
 # --- CACHED MODEL LOADER ---
 @st.cache_resource(show_spinner="Loading AI models... (This may take a moment)")
