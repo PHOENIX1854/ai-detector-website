@@ -19,7 +19,7 @@ MAX_FRAMES_PER_VIDEO = 20 # Cap maximum frames to keep video analysis fast (<3s 
 
 # Overfitting Mitigation:
 # 1. Configurable decision threshold (scores >= AI_THRESHOLD flagged as AI)
-AI_THRESHOLD = 0.5
+AI_THRESHOLD = 0.55
 # 2. Test-Time Augmentation (averages original + horizontally flipped image)
 USE_TTA = True
 
