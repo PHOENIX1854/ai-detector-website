@@ -21,6 +21,9 @@ WORKDIR $HOME/app
 COPY --chown=user requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Pre-download CLIP model to cache during build for instant container startup
+RUN python -c "from transformers import CLIPProcessor, CLIPModel; CLIPModel.from_pretrained('openai/clip-vit-base-patch32'); CLIPProcessor.from_pretrained('openai/clip-vit-base-patch32')"
+
 # Copy all application files
 COPY --chown=user . .
 
