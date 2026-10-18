@@ -83,6 +83,23 @@ def load_models(device):
     
     return vlm_model, processor, classifier_model
 
+def extract_feature_tensor(features):
+    """
+    Extracts raw Tensor from CLIP get_image_features across Transformers v4 and v5+.
+    In Transformers v5+, get_image_features returns a BaseModelOutputWithPooling dataclass.
+    """
+    if isinstance(features, torch.Tensor):
+        return features
+    if hasattr(features, "pooler_output") and features.pooler_output is not None:
+        return features.pooler_output
+    if hasattr(features, "image_embeds") and features.image_embeds is not None:
+        return features.image_embeds
+    if hasattr(features, "last_hidden_state") and features.last_hidden_state is not None:
+        return features.last_hidden_state[:, 0, :]
+    if isinstance(features, (tuple, list)) and len(features) > 0:
+        return features[0]
+    return features
+
 # --- 4. PREDICTION FUNCTIONS WITH TTA (TEST-TIME AUGMENTATION) ---
 
 def run_inference_on_image(pil_image, vlm, processor, classifier, device, use_tta=USE_TTA):
@@ -106,7 +123,8 @@ def run_inference_on_image(pil_image, vlm, processor, classifier, device, use_tt
         inputs = {k: v.to(device) for k, v in inputs.items()}
 
         with torch.no_grad():
-            image_features = vlm.get_image_features(**inputs)
+            raw_features = vlm.get_image_features(**inputs)
+            image_features = extract_feature_tensor(raw_features)
             outputs = classifier(image_features)
             probs = torch.sigmoid(outputs).squeeze(-1)
             
@@ -143,7 +161,8 @@ def run_inference_on_batch(pil_images, vlm, processor, classifier, device, use_t
         inputs = {k: v.to(device) for k, v in inputs.items()}
 
         with torch.no_grad():
-            image_features = vlm.get_image_features(**inputs)
+            raw_features = vlm.get_image_features(**inputs)
+            image_features = extract_feature_tensor(raw_features)
             outputs = classifier(image_features)
             probs = torch.sigmoid(outputs).squeeze(-1)
             
