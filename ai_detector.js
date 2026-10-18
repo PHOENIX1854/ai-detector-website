@@ -7,7 +7,6 @@ const detectButton = document.getElementById('detect-button');
 const resultArea = document.getElementById('result-area');
 const loadingState = document.getElementById('loading-state');
 const resultContent = document.getElementById('result-content');
-const backendNote = document.getElementById('backend-note'); // We will hide this now
 
 let selectedFile = null;
 
@@ -49,7 +48,6 @@ function handleFile(file) {
     // Reset UI
     resultArea.classList.add('hidden');
     resultContent.classList.add('hidden');
-    if (backendNote) backendNote.classList.add('hidden'); // Hide backend note
     loadingState.classList.add('hidden');
 
     const validImageTypes = ['image/jpeg', 'image/png', 'image/webp'];
@@ -107,7 +105,6 @@ async function handleDetect() {
     resultArea.classList.remove('hidden');
     loadingState.classList.remove('hidden');
     resultContent.classList.add('hidden');
-    if (backendNote) backendNote.classList.add('hidden');
     detectButton.disabled = true;
 
     // --- THIS IS THE REAL API CALL ---
@@ -156,15 +153,13 @@ function displayResult(data) {
         return;
     }
 
-    const { label, confidence, frames_sampled, keyframe_index, explanation, heatmap_raw, original_image, threshold, tta_enabled } = data;
+    const { label, confidence, frames_sampled, keyframe_index, heatmap_raw, original_image, threshold, tta_enabled } = data;
 
     const isAI = label.toLowerCase() === 'ai';
     const confidencePercent = (confidence * 100).toFixed(1);
 
     const cardBg = isAI ? 'bg-red-50 border-red-200' : 'bg-emerald-50 border-emerald-200';
     const textColor = isAI ? 'text-red-900' : 'text-emerald-900';
-    const badgeColor = isAI ? 'bg-red-100 text-red-700 border-red-300' : 'bg-emerald-100 text-emerald-700 border-emerald-300';
-    const dotColor = isAI ? 'bg-red-500 animate-pulse' : 'bg-emerald-500';
     const barColor = isAI ? 'text-red-600' : 'text-emerald-600';
 
     let html = `
@@ -173,11 +168,7 @@ function displayResult(data) {
             <div class="${cardBg} border p-6 rounded-xl shadow-sm">
                 <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                     <div>
-                        <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider border ${badgeColor}">
-                            <span class="w-2 h-2 rounded-full ${dotColor}"></span>
-                            ${isAI ? 'AI Generated Media' : 'Real'}
-                        </div>
-                        <p class="text-3xl font-extrabold mt-2 text-gray-900">${confidencePercent}% <span class="text-base font-normal text-gray-500">Confidence</span></p> 
+                        <p class="text-3xl font-extrabold text-gray-900">${confidencePercent}% <span class="text-base font-normal text-gray-500">Confidence</span></p> 
                         
                         <div class="flex flex-wrap items-center gap-2 mt-2 text-xs text-gray-600 font-medium">
                             <span class="bg-white/90 border border-gray-300 px-2 py-0.5 rounded text-[11px] font-semibold text-gray-700 shadow-2xs">TTA Stabilized</span>
@@ -200,12 +191,6 @@ function displayResult(data) {
                         </div>
                     </div>
                 </div>
-
-                ${explanation ? `
-                    <div class="mt-4 pt-3.5 border-t border-gray-200/80 text-xs sm:text-sm text-gray-700 leading-relaxed">
-                        ${explanation}
-                    </div>
-                ` : ''}
             </div>
     `;
 

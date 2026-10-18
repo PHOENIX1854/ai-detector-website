@@ -249,23 +249,13 @@ def get_prediction_for_image_file(image_path, vlm, processor, classifier, device
         # Generate the visual attention heatmap
         heatmap_data = generate_attention_heatmap(img, vlm, processor, device)
         
-        if is_ai:
-            explanation = (
-                f"The model detected synthetic patterns with {confidence * 100:.1f}% confidence "
-                f"(exceeding the {AI_THRESHOLD * 100:.0f}% AI threshold with TTA verification). "
-                "The warm/red zones in the heatmap highlight the specific image patches that triggered the strongest AI signals."
-            )
-        else:
-            explanation = ""
-
         result = {
             "label": label,
             "confidence": confidence,
             "raw_probability": float(prediction_num),
             "threshold": AI_THRESHOLD,
             "tta_enabled": USE_TTA,
-            "filename": os.path.basename(image_path),
-            "explanation": explanation
+            "filename": os.path.basename(image_path)
         }
         if heatmap_data:
             result.update(heatmap_data)
@@ -347,15 +337,6 @@ def process_video_file(video_path, vlm, processor, classifier, device):
         best_frame = sampled_pil_images[max_idx]
         heatmap_data = generate_attention_heatmap(best_frame, vlm, processor, device)
 
-        if is_ai:
-            explanation = (
-                f"Video flagged as AI-generated based on peak detection in sampled frame #{max_idx + 1} "
-                f"({max_prob * 100:.1f}% AI probability, threshold {AI_THRESHOLD * 100:.0f}%). "
-                "The heatmap highlights the visual focus areas in that key frame."
-            )
-        else:
-            explanation = ""
-
         result = {
             "label": label,
             "confidence": confidence,
@@ -364,8 +345,7 @@ def process_video_file(video_path, vlm, processor, classifier, device):
             "tta_enabled": USE_TTA,
             "frames_sampled": len(frame_probabilities),
             "keyframe_index": max_idx + 1,
-            "filename": os.path.basename(video_path),
-            "explanation": explanation
+            "filename": os.path.basename(video_path)
         }
         if heatmap_data:
             result.update(heatmap_data)
