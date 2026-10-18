@@ -85,7 +85,10 @@ st.markdown("""
     }
     
     /* Detect Button Styling (Sky-600) */
-    div.stButton > button {
+    div.stButton, div[data-testid="stButton"] {
+        width: 100% !important;
+    }
+    div.stButton > button, div[data-testid="stButton"] > button {
         background-color: #0284c7 !important;
         color: #ffffff !important;
         font-weight: 600 !important;
@@ -97,9 +100,14 @@ st.markdown("""
         box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05) !important;
         transition: background-color 0.15s ease-in-out !important;
     }
-    div.stButton > button:hover {
+    div.stButton > button:hover, div[data-testid="stButton"] > button:hover {
         background-color: #0369a1 !important;
         color: #ffffff !important;
+    }
+    div.stButton > button:disabled, div[data-testid="stButton"] > button:disabled {
+        background-color: #d1d5db !important;
+        color: #9ca3af !important;
+        cursor: not-allowed !important;
     }
     
     /* Section Headings */
@@ -345,7 +353,7 @@ if uploaded_file is not None:
 
         with col_verdict:
             verdict_html = (
-                f'<div style="background-color: {card_bg}; border: 1px solid {card_border}; padding: 1.5rem; border-radius: 0.75rem; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); margin-bottom: 1.5rem;">'
+                f'<div style="background-color: {card_bg}; border: 1px solid {card_border}; padding: 1.5rem; border-radius: 0.75rem; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); margin-bottom: 1.5rem; min-height: 155px; display: flex; flex-direction: column; justify-content: space-between;">'
                 f'<div style="display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 1rem;">'
                 f'<div>'
                 f'<div style="font-size: 1.875rem; font-weight: 800; color: #111827; line-height: 1.25;">'
@@ -374,7 +382,8 @@ if uploaded_file is not None:
 
         with col_details:
             details_html = (
-                '<div style="background-color: #ffffff; border: 1px solid #e5e7eb; padding: 1.5rem; border-radius: 0.75rem; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); margin-bottom: 1.5rem;">'
+                '<div style="background-color: #ffffff; border: 1px solid #e5e7eb; padding: 1.5rem; border-radius: 0.75rem; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); margin-bottom: 1.5rem; min-height: 155px; display: flex; flex-direction: column; justify-content: space-between;">'
+                '<div>'
                 '<div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">'
                 '<div style="font-weight: 700; color: #111827; font-size: 0.95rem;">Vision Transformer Heatmap Scale</div>'
                 '<span style="font-size: 0.75rem; font-weight: 600; background-color: #e0f2fe; color: #0369a1; padding: 2px 8px; border-radius: 4px;">ViT-B/32</span>'
@@ -382,11 +391,14 @@ if uploaded_file is not None:
                 '<div style="font-size: 0.75rem; color: #6b7280; margin-bottom: 0.75rem;">'
                 + ("Keyframe peak anomaly attention map (49 ViT patches)." if frames_sampled else "Heatmap overlay indicates the 49 spatial ViT patches driving the prediction.") +
                 '</div>'
+                '</div>'
+                '<div>'
                 '<div style="display: flex; justify-content: space-between; font-size: 11px; color: #6b7280; font-weight: 500;">'
                 '<span>Cool Blue: Neutral / Background</span>'
                 '<span>Hot Red: Peak Attention / Artifacts</span>'
                 '</div>'
                 '<div class="heatmap-scale"></div>'
+                '</div>'
                 '</div>'
             )
             st.markdown(details_html, unsafe_allow_html=True)
@@ -396,8 +408,8 @@ if uploaded_file is not None:
 
     st.write("")
 
-    # 3. Detect Button (BELOW Preview and Results)
-    detect_clicked = st.button("Detect", key="detect_btn")
+    # 3. Detect Button (BELOW Preview and Results) - full width
+    detect_clicked = st.button("Detect", key="detect_btn", use_container_width=True)
 
     # If Detect clicked, run inference
     if detect_clicked:
@@ -428,5 +440,5 @@ if uploaded_file is not None:
             st.rerun()
 
 else:
-    # When no file uploaded, show disabled Detect button
-    st.button("Detect", key="detect_btn_disabled", disabled=True)
+    # When no file uploaded, show disabled Detect button - full width
+    st.button("Detect", key="detect_btn_disabled", disabled=True, use_container_width=True)

@@ -18,10 +18,16 @@ SAMPLE_RATE_SECONDS = 0.5 # Sample up to 2 frames per second
 MAX_FRAMES_PER_VIDEO = 20 # Cap maximum frames to keep video analysis fast (<3s on CPU)
 
 # Overfitting Mitigation:
-# 1. Configurable decision threshold (scores >= AI_THRESHOLD flagged as AI; reduces false positives)
-AI_THRESHOLD = 0.55
-# 2. Test-Time Augmentation (averages original + horizontally flipped image to eliminate orientation bias)
+# 1. Configurable decision threshold (scores >= AI_THRESHOLD flagged as AI)
+AI_THRESHOLD = 0.5
+# 2. Test-Time Augmentation (averages original + horizontally flipped image)
 USE_TTA = True
+
+# Helper for Pillow compatibility (Pillow 10+ removed Image.FLIP_LEFT_RIGHT in favor of Image.Transpose.FLIP_LEFT_RIGHT)
+try:
+    FLIP_LEFT_RIGHT = Image.Transpose.FLIP_LEFT_RIGHT
+except AttributeError:
+    FLIP_LEFT_RIGHT = getattr(Image, "FLIP_LEFT_RIGHT", 0)
 
 # --- IMPORTANT CHANGE ---
 # The server will look for this file in the SAME directory.
@@ -88,8 +94,11 @@ def run_inference_on_image(pil_image, vlm, processor, classifier, device, use_tt
     """
     try:
         if use_tta:
-            img_flipped = pil_image.transpose(Image.FLIP_LEFT_RIGHT)
-            batch_images = [pil_image, img_flipped]
+            try:
+                img_flipped = pil_image.transpose(FLIP_LEFT_RIGHT)
+                batch_images = [pil_image, img_flipped]
+            except Exception:
+                batch_images = [pil_image]
         else:
             batch_images = [pil_image]
 
@@ -109,7 +118,7 @@ def run_inference_on_image(pil_image, vlm, processor, classifier, device, use_tt
         return prediction_num
     except Exception as e:
         print(f"\nWarning: Error during frame inference: {e}")
-        return 0.0
+        raise
 
 def run_inference_on_batch(pil_images, vlm, processor, classifier, device, use_tta=USE_TTA):
     """
@@ -123,7 +132,10 @@ def run_inference_on_batch(pil_images, vlm, processor, classifier, device, use_t
         if use_tta:
             eval_images = []
             for img in pil_images:
-                eval_images.extend([img, img.transpose(Image.FLIP_LEFT_RIGHT)])
+                try:
+                    eval_images.extend([img, img.transpose(FLIP_LEFT_RIGHT)])
+                except Exception:
+                    eval_images.append(img)
         else:
             eval_images = pil_images
 
