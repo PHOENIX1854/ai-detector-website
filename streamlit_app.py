@@ -188,9 +188,6 @@ uploaded_file = st.file_uploader(
     label_visibility="collapsed"
 )
 
-# Detect Button
-detect_clicked = st.button("Detect", key="detect_btn")
-
 # Session state initialization
 if "last_result" not in st.session_state:
     st.session_state["last_result"] = None
@@ -208,7 +205,201 @@ if uploaded_file is not None:
     is_image = file_ext in detector_logic.IMAGE_EXTENSIONS_SET
     is_video = file_ext in detector_logic.VIDEO_EXTENSIONS_SET
 
-    # If the user clicks Detect, run inference and save result in session state
+    # Reset result if a new file is uploaded
+    if st.session_state["last_filename"] != uploaded_file.name:
+        st.session_state["last_result"] = None
+        st.session_state["last_filename"] = uploaded_file.name
+        st.session_state["slider_val"] = 50
+
+    has_results = (
+        st.session_state["last_result"] is not None and 
+        "error" not in st.session_state["last_result"]
+    )
+
+    # 1. Preview ABOVE the Detect button (Heatmap overlays directly on preview when analyzed)
+    if has_results and is_image:
+        res = st.session_state["last_result"]
+        orig_pil = data_url_to_pil(res.get("original_image"))
+        heat_pil = data_url_to_pil(res.get("heatmap_raw"))
+
+        st.markdown("""
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 1rem; margin-bottom: 0.5rem;">
+            <div class="section-title" style="margin: 0;">Preview & Vision Attention Heatmap</div>
+            <span style="font-size: 0.75rem; font-weight: 600; background-color: #e0f2fe; color: #0369a1; padding: 2px 8px; border-radius: 4px;">ViT-B/32</span>
+        </div>
+        """, unsafe_allow_html=True)
+
+        current_opacity = st.slider(
+            "Heatmap Overlay Intensity:",
+            min_value=0,
+            max_value=100,
+            value=st.session_state["slider_val"],
+            step=1,
+            key="heatmap_slider"
+        )
+        st.session_state["slider_val"] = current_opacity
+
+        # Overlay heatmap directly on preview
+        if orig_pil and heat_pil:
+            blended_preview = blend_images(orig_pil, heat_pil, current_opacity)
+            render_image(blended_preview)
+        elif orig_pil:
+            render_image(orig_pil)
+
+        # Preset Quick Buttons
+        b_col1, b_col2, b_col3 = st.columns(3)
+        with b_col1:
+            if st.button("Original (0%)", use_container_width=True):
+                set_opacity(0)
+                st.rerun()
+        with b_col2:
+            if st.button("Blended (50%)", use_container_width=True):
+                set_opacity(50)
+                st.rerun()
+        with b_col3:
+            if st.button("Heatmap (100%)", use_container_width=True):
+                set_opacity(100)
+                st.rerun()
+
+    elif has_results and is_video:
+        res = st.session_state["last_result"]
+        orig_pil = data_url_to_pil(res.get("original_image"))
+        heat_pil = data_url_to_pil(res.get("heatmap_raw"))
+        keyframe_index = res.get("keyframe_index", 1)
+
+        st.markdown(f"""
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 1rem; margin-bottom: 0.5rem;">
+            <div class="section-title" style="margin: 0;">Keyframe #{keyframe_index} Attention Heatmap</div>
+            <span style="font-size: 0.75rem; font-weight: 600; background-color: #e0f2fe; color: #0369a1; padding: 2px 8px; border-radius: 4px;">ViT-B/32</span>
+        </div>
+        """, unsafe_allow_html=True)
+
+        current_opacity = st.slider(
+            "Heatmap Overlay Intensity:",
+            min_value=0,
+            max_value=100,
+            value=st.session_state["slider_val"],
+            step=1,
+            key="heatmap_slider"
+        )
+        st.session_state["slider_val"] = current_opacity
+
+        if orig_pil and heat_pil:
+            blended_preview = blend_images(orig_pil, heat_pil, current_opacity)
+            render_image(blended_preview)
+
+        b_col1, b_col2, b_col3 = st.columns(3)
+        with b_col1:
+            if st.button("Original (0%)", use_container_width=True):
+                set_opacity(0)
+                st.rerun()
+        with b_col2:
+            if st.button("Blended (50%)", use_container_width=True):
+                set_opacity(50)
+                st.rerun()
+        with b_col3:
+            if st.button("Heatmap (100%)", use_container_width=True):
+                set_opacity(100)
+                st.rerun()
+
+        with st.expander("🎥 View Original Video"):
+            st.video(uploaded_file)
+
+    else:
+        # Before detection: show standard preview
+        st.markdown('<div class="section-title" style="margin-top: 1rem;">Preview</div>', unsafe_allow_html=True)
+        if is_image:
+            img_bytes = uploaded_file.getvalue()
+            pil_preview = Image.open(BytesIO(img_bytes)).convert("RGB")
+            render_image(pil_preview)
+        elif is_video:
+            st.video(uploaded_file)
+
+    # 2. Horizontal Results Display (ABOVE the Detect button)
+    if has_results:
+        data = st.session_state["last_result"]
+
+        st.write("")
+        st.markdown('<div class="section-title">Result</div>', unsafe_allow_html=True)
+        col_verdict, col_details = st.columns([1, 1], gap="large")
+
+        label = data.get("label", "Real")
+        confidence = data.get("confidence", 0.0)
+        confidence_percent = confidence * 100.0
+        threshold = data.get("threshold", 0.55)
+        frames_sampled = data.get("frames_sampled")
+        keyframe_index = data.get("keyframe_index")
+
+        is_ai = label.lower() == "ai"
+
+        # Colors matching ai_detector.js
+        card_bg = "#fef2f2" if is_ai else "#ecfdf5"
+        card_border = "#fecaca" if is_ai else "#a7f3d0"
+        text_color = "#991b1b" if is_ai else "#065f46"
+        bar_color = "#dc2626" if is_ai else "#059669"
+
+        frames_tag = ""
+        if frames_sampled:
+            key_text = f" (Key #{keyframe_index})" if keyframe_index else ""
+            frames_tag = f"<span>•</span><span>{frames_sampled} frames{key_text}</span>"
+
+        with col_verdict:
+            verdict_html = (
+                f'<div style="background-color: {card_bg}; border: 1px solid {card_border}; padding: 1.5rem; border-radius: 0.75rem; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); margin-bottom: 1.5rem;">'
+                f'<div style="display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 1rem;">'
+                f'<div>'
+                f'<div style="font-size: 1.875rem; font-weight: 800; color: #111827; line-height: 1.25;">'
+                f'{confidence_percent:.1f}% <span style="font-size: 1rem; font-weight: 400; color: #6b7280;">Confidence</span>'
+                f'</div>'
+                f'<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-top: 0.5rem; font-size: 0.75rem; color: #4b5563; font-weight: 500;">'
+                f'<span style="background: rgba(255,255,255,0.9); border: 1px solid #d1d5db; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; color: #374151;">TTA Stabilized</span>'
+                f'<span>•</span>'
+                f'<span style="font-size: 11px; color: #6b7280;">Threshold: {(threshold * 100):.0f}%</span>'
+                f'{frames_tag}'
+                f'</div>'
+                f'</div>'
+                f'<div style="position: relative; width: 80px; height: 80px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;">'
+                f'<svg viewBox="0 0 36 36" style="width: 100%; height: 100%; transform: rotate(-90deg);">'
+                f'<circle stroke="#e5e7eb" stroke-width="3.5" fill="transparent" r="15.9155" cx="18" cy="18" />'
+                f'<circle stroke="{bar_color}" stroke-width="3.5" stroke-linecap="round" fill="transparent" stroke-dasharray="{confidence_percent:.1f}, 100" stroke-dashoffset="0" r="15.9155" cx="18" cy="18" />'
+                f'</svg>'
+                f'<div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; color: {text_color};">'
+                f'{label}'
+                f'</div>'
+                f'</div>'
+                f'</div>'
+                f'</div>'
+            )
+            st.markdown(verdict_html, unsafe_allow_html=True)
+
+        with col_details:
+            details_html = (
+                '<div style="background-color: #ffffff; border: 1px solid #e5e7eb; padding: 1.5rem; border-radius: 0.75rem; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); margin-bottom: 1.5rem;">'
+                '<div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">'
+                '<div style="font-weight: 700; color: #111827; font-size: 0.95rem;">Vision Transformer Heatmap Scale</div>'
+                '<span style="font-size: 0.75rem; font-weight: 600; background-color: #e0f2fe; color: #0369a1; padding: 2px 8px; border-radius: 4px;">ViT-B/32</span>'
+                '</div>'
+                '<div style="font-size: 0.75rem; color: #6b7280; margin-bottom: 0.75rem;">'
+                + ("Keyframe peak anomaly attention map (49 ViT patches)." if frames_sampled else "Heatmap overlay indicates the 49 spatial ViT patches driving the prediction.") +
+                '</div>'
+                '<div style="display: flex; justify-content: space-between; font-size: 11px; color: #6b7280; font-weight: 500;">'
+                '<span>Cool Blue: Neutral / Background</span>'
+                '<span>Hot Red: Peak Attention / Artifacts</span>'
+                '</div>'
+                '<div class="heatmap-scale"></div>'
+                '</div>'
+            )
+            st.markdown(details_html, unsafe_allow_html=True)
+
+    elif st.session_state["last_result"] is not None and "error" in st.session_state["last_result"]:
+        st.error(st.session_state["last_result"]["error"])
+
+    st.write("")
+
+    # 3. Detect Button (BELOW Preview and Results)
+    detect_clicked = st.button("Detect", key="detect_btn")
+
+    # If Detect clicked, run inference
     if detect_clicked:
         with st.spinner("Analyzing media... this may take a moment."):
             with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp_file:
@@ -234,138 +425,8 @@ if uploaded_file is not None:
 
             st.session_state["last_result"] = result
             st.session_state["last_filename"] = uploaded_file.name
+            st.rerun()
 
-    # Two columns matching md:flex md:space-x-8 from ai_detector.html
-    col_preview, col_result = st.columns(2, gap="large")
-
-    with col_preview:
-        st.markdown('<div class="section-title">Preview</div>', unsafe_allow_html=True)
-        if is_image:
-            img_bytes = uploaded_file.getvalue()
-            pil_preview = Image.open(BytesIO(img_bytes)).convert("RGB")
-            render_image(pil_preview)
-        elif is_video:
-            st.video(uploaded_file)
-
-    with col_result:
-        st.markdown('<div class="section-title">Result</div>', unsafe_allow_html=True)
-
-        if st.session_state["last_result"] is not None and st.session_state["last_filename"] == uploaded_file.name:
-            data = st.session_state["last_result"]
-
-            if "error" in data:
-                st.error(data["error"])
-            else:
-                label = data.get("label", "Real")
-                confidence = data.get("confidence", 0.0)
-                confidence_percent = confidence * 100.0
-                threshold = data.get("threshold", 0.55)
-                frames_sampled = data.get("frames_sampled")
-                keyframe_index = data.get("keyframe_index")
-                heatmap_raw_b64 = data.get("heatmap_raw")
-                orig_image_b64 = data.get("original_image")
-
-                is_ai = label.lower() == "ai"
-
-                # Colors matching ai_detector.js
-                card_bg = "#fef2f2" if is_ai else "#ecfdf5"
-                card_border = "#fecaca" if is_ai else "#a7f3d0"
-                text_color = "#991b1b" if is_ai else "#065f46"
-                bar_color = "#dc2626" if is_ai else "#059669"
-
-                frames_tag = ""
-                if frames_sampled:
-                    key_text = f" (Key #{keyframe_index})" if keyframe_index else ""
-                    frames_tag = f"<span>•</span><span>{frames_sampled} frames{key_text}</span>"
-
-                # Circular progress meter HTML identical to ai_detector.js (no indentation to avoid markdown codeblock)
-                verdict_html = (
-                    f'<div style="background-color: {card_bg}; border: 1px solid {card_border}; padding: 1.5rem; border-radius: 0.75rem; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); margin-bottom: 1.5rem;">'
-                    f'<div style="display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 1rem;">'
-                    f'<div>'
-                    f'<div style="font-size: 1.875rem; font-weight: 800; color: #111827; line-height: 1.25;">'
-                    f'{confidence_percent:.1f}% <span style="font-size: 1rem; font-weight: 400; color: #6b7280;">Confidence</span>'
-                    f'</div>'
-                    f'<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-top: 0.5rem; font-size: 0.75rem; color: #4b5563; font-weight: 500;">'
-                    f'<span style="background: rgba(255,255,255,0.9); border: 1px solid #d1d5db; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; color: #374151;">TTA Stabilized</span>'
-                    f'<span>•</span>'
-                    f'<span style="font-size: 11px; color: #6b7280;">Threshold: {(threshold * 100):.0f}%</span>'
-                    f'{frames_tag}'
-                    f'</div>'
-                    f'</div>'
-                    f'<div style="position: relative; width: 80px; height: 80px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;">'
-                    f'<svg viewBox="0 0 36 36" style="width: 100%; height: 100%; transform: rotate(-90deg);">'
-                    f'<circle stroke="#e5e7eb" stroke-width="3.5" fill="transparent" r="15.9155" cx="18" cy="18" />'
-                    f'<circle stroke="{bar_color}" stroke-width="3.5" stroke-linecap="round" fill="transparent" stroke-dasharray="{confidence_percent:.1f}, 100" stroke-dashoffset="0" r="15.9155" cx="18" cy="18" />'
-                    f'</svg>'
-                    f'<div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; color: {text_color};">'
-                    f'{label}'
-                    f'</div>'
-                    f'</div>'
-                    f'</div>'
-                    f'</div>'
-                )
-                st.markdown(verdict_html, unsafe_allow_html=True)
-
-                # Heatmap Section identical to ai_detector.js
-                if heatmap_raw_b64 and orig_image_b64:
-                    orig_pil = data_url_to_pil(orig_image_b64)
-                    heat_pil = data_url_to_pil(heatmap_raw_b64)
-
-                    if orig_pil and heat_pil:
-                        sub_text = f"Keyframe #{keyframe_index} anomaly heatmap (49 ViT patches)" if frames_sampled else "Visualizes the 49 Vision Transformer patches driving this decision"
-                        heatmap_header_html = (
-                            f'<div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">'
-                            f'<div>'
-                            f'<div style="font-weight: 700; color: #111827; font-size: 0.95rem;">Vision Attention Heatmap</div>'
-                            f'<div style="font-size: 0.75rem; color: #6b7280; margin-top: 2px;">{sub_text}</div>'
-                            f'</div>'
-                            f'<span style="font-size: 0.75rem; font-weight: 600; background-color: #e0f2fe; color: #0369a1; padding: 2px 8px; border-radius: 4px;">ViT-B/32</span>'
-                            f'</div>'
-                        )
-                        st.markdown(heatmap_header_html, unsafe_allow_html=True)
-
-                        # Opacity Slider matching ai_detector.js
-                        current_opacity = st.slider(
-                            "Heatmap Overlay Intensity:",
-                            min_value=0,
-                            max_value=100,
-                            value=st.session_state["slider_val"],
-                            step=1,
-                            key="heatmap_slider"
-                        )
-                        st.session_state["slider_val"] = current_opacity
-
-                        # Render blended heatmap
-                        blended_img = blend_images(orig_pil, heat_pil, current_opacity)
-                        render_image(blended_img)
-
-                        # Preset Quick Buttons: Original (0%), Blended (50%), Heatmap (100%)
-                        b_col1, b_col2, b_col3 = st.columns(3)
-                        with b_col1:
-                            if st.button("Original (0%)", use_container_width=True):
-                                set_opacity(0)
-                                st.rerun()
-                        with b_col2:
-                            if st.button("Blended (50%)", use_container_width=True):
-                                set_opacity(50)
-                                st.rerun()
-                        with b_col3:
-                            if st.button("Heatmap (100%)", use_container_width=True):
-                                set_opacity(100)
-                                st.rerun()
-
-                        # Color Scale Legend identical to ai_detector.js
-                        legend_html = (
-                            '<div style="padding-top: 0.75rem; border-top: 1px solid #e5e7eb; margin-top: 0.75rem;">'
-                            '<div style="display: flex; justify-content: space-between; font-size: 11px; color: #6b7280; font-weight: 500;">'
-                            '<span>Cool Blue: Neutral / Background</span>'
-                            '<span>Hot Red: Peak Attention / Artifacts</span>'
-                            '</div>'
-                            '<div class="heatmap-scale"></div>'
-                            '</div>'
-                        )
-                        st.markdown(legend_html, unsafe_allow_html=True)
-
-        elif not detect_clicked and uploaded_file is not None:
-            st.info("Click **Detect** to run the analysis.")
+else:
+    # When no file uploaded, show disabled Detect button
+    st.button("Detect", key="detect_btn_disabled", disabled=True)
