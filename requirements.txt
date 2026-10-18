@@ -4,7 +4,9 @@ transformers
 opencv-python-headless
 Pillow
 numpy
+tqdm
+streamlit
 flask
 flask-cors
 gunicorn
-tqdm
+

@@ -18,12 +18,21 @@ A full-stack AI media detector powered by OpenAI's CLIP (`openai/clip-vit-base-p
 - **Web Interface:** Clean, responsive drag-and-drop UI with confidence visualization.
 
 ## Running Locally
-1. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-2. Start the web server:
-   ```bash
-   python app.py
-   ```
-3. Open `http://localhost:5000` in your browser.
+
+### Streamlit App
+```bash
+pip install -r requirements.txt
+streamlit run streamlit_app.py
+```
+Open `http://localhost:8501` in your browser.
+
+## Deploying to Streamlit Community Cloud (streamlit.io)
+1. Push your repository to GitHub (`PHOENIX1854/ai-detector-website`).
+2. Visit [share.streamlit.io](https://share.streamlit.io/) and log in with your GitHub account.
+3. Click **New app**.
+4. Select:
+   - **Repository:** `PHOENIX1854/ai-detector-website`
+   - **Branch:** `main`
+   - **Main file path:** `streamlit_app.py`
+5. Click **Deploy!**
+
