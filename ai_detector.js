@@ -156,7 +156,7 @@ function displayResult(data) {
         return;
     }
 
-    const { label, confidence, frames_sampled, keyframe_index, explanation, heatmap_raw, original_image } = data;
+    const { label, confidence, frames_sampled, keyframe_index, explanation, heatmap_raw, original_image, threshold, tta_enabled } = data;
 
     const isAI = label.toLowerCase() === 'ai';
     const confidencePercent = (confidence * 100).toFixed(1);
@@ -175,14 +175,16 @@ function displayResult(data) {
                     <div>
                         <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider border ${badgeColor}">
                             <span class="w-2 h-2 rounded-full ${dotColor}"></span>
-                            ${isAI ? 'AI Generated Media' : 'Authentic / Real Media'}
+                            ${isAI ? 'AI Generated Media' : 'Real'}
                         </div>
                         <p class="text-3xl font-extrabold mt-2 text-gray-900">${confidencePercent}% <span class="text-base font-normal text-gray-500">Confidence</span></p> 
-                        ${frames_sampled ? `
-                            <p class="text-xs text-gray-600 mt-1 font-medium">
-                                Analyzed ${frames_sampled} video frames${keyframe_index ? ` • Peak anomaly detected on Frame #${keyframe_index}` : ''}
-                            </p>
-                        ` : ''}
+                        
+                        <div class="flex flex-wrap items-center gap-2 mt-2 text-xs text-gray-600 font-medium">
+                            <span class="bg-white/90 border border-gray-300 px-2 py-0.5 rounded text-[11px] font-semibold text-gray-700 shadow-2xs">TTA Stabilized</span>
+                            <span>•</span>
+                            <span class="text-[11px] text-gray-500">Threshold: ${(threshold ? threshold * 100 : 55).toFixed(0)}%</span>
+                            ${frames_sampled ? `<span>•</span><span>${frames_sampled} frames${keyframe_index ? ` (Key #${keyframe_index})` : ''}</span>` : ''}
+                        </div>
                     </div>
                     <div class="flex-shrink-0 flex items-center justify-center">
                         <div class="relative w-20 h-20">

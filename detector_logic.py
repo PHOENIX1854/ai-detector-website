@@ -17,6 +17,12 @@ INPUT_DIM = 512
 SAMPLE_RATE_SECONDS = 0.5 # Sample up to 2 frames per second
 MAX_FRAMES_PER_VIDEO = 20 # Cap maximum frames to keep video analysis fast (<3s on CPU)
 
+# Overfitting Mitigation:
+# 1. Configurable decision threshold (scores >= AI_THRESHOLD flagged as AI; reduces false positives)
+AI_THRESHOLD = 0.55
+# 2. Test-Time Augmentation (averages original + horizontally flipped image to eliminate orientation bias)
+USE_TTA = True
+
 # --- IMPORTANT CHANGE ---
 # The server will look for this file in the SAME directory.
 # Make sure you copy 'best_nn_classifier_FINAL.pth' here.
@@ -71,39 +77,23 @@ def load_models(device):
     
     return vlm_model, processor, classifier_model
 
-# --- 4. PREDICTION FUNCTIONS (Unchanged) ---
+# --- 4. PREDICTION FUNCTIONS WITH TTA (TEST-TIME AUGMENTATION) ---
 
-def run_inference_on_image(pil_image, vlm, processor, classifier, device):
+def run_inference_on_image(pil_image, vlm, processor, classifier, device, use_tta=USE_TTA):
     """
     Runs inference on a single PIL.Image object.
+    When use_tta is True, applies Test-Time Augmentation by evaluating both
+    the original and horizontally flipped image, then averaging their predictions.
     Returns the raw probability (float).
     """
     try:
-        inputs = processor(text=None, images=pil_image, return_tensors="pt")
-        inputs = {k: v.to(device) for k, v in inputs.items()}
+        if use_tta:
+            img_flipped = pil_image.transpose(Image.FLIP_LEFT_RIGHT)
+            batch_images = [pil_image, img_flipped]
+        else:
+            batch_images = [pil_image]
 
-        with torch.no_grad():
-            image_features = vlm.get_image_features(**inputs)
-        
-        with torch.no_grad():
-            outputs = classifier(image_features)
-            probs = torch.sigmoid(outputs)
-            prediction_num = probs.item()
-        
-        return prediction_num
-    except Exception as e:
-        print(f"\nWarning: Error during frame inference: {e}")
-        return 0.0
-
-def run_inference_on_batch(pil_images, vlm, processor, classifier, device):
-    """
-    Runs batch inference on a list of PIL.Image objects.
-    Significantly faster than one-by-one inference on CPU/GPU.
-    """
-    if not pil_images:
-        return []
-    try:
-        inputs = processor(text=None, images=pil_images, return_tensors="pt")
+        inputs = processor(text=None, images=batch_images, return_tensors="pt")
         inputs = {k: v.to(device) for k, v in inputs.items()}
 
         with torch.no_grad():
@@ -112,11 +102,57 @@ def run_inference_on_batch(pil_images, vlm, processor, classifier, device):
             probs = torch.sigmoid(outputs).squeeze(-1)
             
             if probs.ndim == 0:
-                return [probs.item()]
-            return probs.cpu().numpy().tolist()
+                prediction_num = float(probs.item())
+            else:
+                prediction_num = float(probs.mean().item())
+        
+        return prediction_num
+    except Exception as e:
+        print(f"\nWarning: Error during frame inference: {e}")
+        return 0.0
+
+def run_inference_on_batch(pil_images, vlm, processor, classifier, device, use_tta=USE_TTA):
+    """
+    Runs batch inference on a list of PIL.Image objects.
+    When use_tta is True, batches each image along with its horizontal flip.
+    Significantly faster than one-by-one inference on CPU/GPU.
+    """
+    if not pil_images:
+        return []
+    try:
+        if use_tta:
+            eval_images = []
+            for img in pil_images:
+                eval_images.extend([img, img.transpose(Image.FLIP_LEFT_RIGHT)])
+        else:
+            eval_images = pil_images
+
+        inputs = processor(text=None, images=eval_images, return_tensors="pt")
+        inputs = {k: v.to(device) for k, v in inputs.items()}
+
+        with torch.no_grad():
+            image_features = vlm.get_image_features(**inputs)
+            outputs = classifier(image_features)
+            probs = torch.sigmoid(outputs).squeeze(-1)
+            
+            if probs.ndim == 0:
+                raw_list = [probs.item()]
+            else:
+                raw_list = probs.cpu().numpy().tolist()
+
+        if use_tta:
+            # Average consecutive pairs (original + horizontally flipped)
+            averaged_probs = []
+            for i in range(0, len(raw_list), 2):
+                avg = (raw_list[i] + raw_list[i + 1]) / 2.0
+                averaged_probs.append(float(avg))
+            return averaged_probs
+        else:
+            return [float(p) for p in raw_list]
+
     except Exception as e:
         print(f"\nWarning: Error during batch inference: {e}. Falling back to sequential inference.")
-        return [run_inference_on_image(img, vlm, processor, classifier, device) for img in pil_images]
+        return [run_inference_on_image(img, vlm, processor, classifier, device, use_tta=use_tta) for img in pil_images]
 
 # --- 5. ATTENTION HEATMAP GENERATOR ---
 
@@ -206,7 +242,7 @@ def get_prediction_for_image_file(image_path, vlm, processor, classifier, device
         img = Image.open(image_path).convert("RGB")
         prediction_num = run_inference_on_image(img, vlm, processor, classifier, device)
         
-        is_ai = prediction_num > 0.5
+        is_ai = prediction_num >= AI_THRESHOLD
         label = "AI" if is_ai else "Real"
         confidence = float(prediction_num if is_ai else 1 - prediction_num)
         
@@ -215,18 +251,19 @@ def get_prediction_for_image_file(image_path, vlm, processor, classifier, device
         
         if is_ai:
             explanation = (
-                f"The model detected synthetic patterns with {confidence * 100:.1f}% confidence. "
+                f"The model detected synthetic patterns with {confidence * 100:.1f}% confidence "
+                f"(exceeding the {AI_THRESHOLD * 100:.0f}% AI threshold with TTA verification). "
                 "The warm/red zones in the heatmap highlight the specific image patches that triggered the strongest AI signals."
             )
         else:
-            explanation = (
-                f"The model classified this image as Real with {confidence * 100:.1f}% confidence. "
-                "Visual attention was naturally distributed without localized synthetic anomalies typical of generated media."
-            )
+            explanation = ""
 
         result = {
             "label": label,
             "confidence": confidence,
+            "raw_probability": float(prediction_num),
+            "threshold": AI_THRESHOLD,
+            "tta_enabled": USE_TTA,
             "filename": os.path.basename(image_path),
             "explanation": explanation
         }
@@ -241,7 +278,7 @@ def get_prediction_for_image_file(image_path, vlm, processor, classifier, device
 def process_video_file(video_path, vlm, processor, classifier, device):
     """
     Runs the full pipeline for a *video file*.
-    Samples up to MAX_FRAMES_PER_VIDEO frames, runs batched inference,
+    Samples up to MAX_FRAMES_PER_VIDEO frames, runs batched inference with TTA,
     and generates an attention heatmap for the key frame with the strongest signal.
     """
     try:
@@ -291,7 +328,7 @@ def process_video_file(video_path, vlm, processor, classifier, device):
         if not sampled_pil_images:
             return {"error": "Video was empty or no frames could be read."}
 
-        # Run fast batched inference
+        # Run fast batched inference with TTA
         frame_probabilities = run_inference_on_batch(
             sampled_pil_images, vlm, processor, classifier, device
         )
@@ -302,7 +339,7 @@ def process_video_file(video_path, vlm, processor, classifier, device):
         # Identify the keyframe with the peak probability (most suspicious frame)
         max_idx = int(np.argmax(frame_probabilities))
         max_prob = float(frame_probabilities[max_idx])
-        is_ai = max_prob > 0.5
+        is_ai = max_prob >= AI_THRESHOLD
         label = "AI" if is_ai else "Real"
         confidence = float(max_prob if is_ai else 1 - max_prob)
         
@@ -313,16 +350,18 @@ def process_video_file(video_path, vlm, processor, classifier, device):
         if is_ai:
             explanation = (
                 f"Video flagged as AI-generated based on peak detection in sampled frame #{max_idx + 1} "
-                f"({max_prob * 100:.1f}% AI probability). The heatmap highlights the visual focus areas in that key frame."
+                f"({max_prob * 100:.1f}% AI probability, threshold {AI_THRESHOLD * 100:.0f}%). "
+                "The heatmap highlights the visual focus areas in that key frame."
             )
         else:
-            explanation = (
-                f"Video classified as Real with {confidence * 100:.1f}% confidence across {len(frame_probabilities)} sampled frames."
-            )
+            explanation = ""
 
         result = {
             "label": label,
             "confidence": confidence,
+            "raw_probability": max_prob,
+            "threshold": AI_THRESHOLD,
+            "tta_enabled": USE_TTA,
             "frames_sampled": len(frame_probabilities),
             "keyframe_index": max_idx + 1,
             "filename": os.path.basename(video_path),
