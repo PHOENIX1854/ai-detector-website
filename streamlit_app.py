@@ -181,10 +181,7 @@ def full_width_button(label, key=None, disabled=False):
     try:
         return st.button(label, key=key, disabled=disabled, **kwargs)
     except TypeError:
-        try:
-            return st.button(label, key=key, disabled=disabled, width="stretch")
-        except TypeError:
-            return st.button(label, key=key, disabled=disabled)
+        return st.button(label, key=key, disabled=disabled)
 
 # --- CACHED MODEL LOADER ---
 @st.cache_resource(show_spinner="Loading AI models... (This may take a moment)")
