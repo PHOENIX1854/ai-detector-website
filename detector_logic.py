@@ -233,16 +233,16 @@ def generate_attention_heatmap(pil_image, vlm, processor, device):
 
 # --- 6. PREDICTION FUNCTIONS WITH EXPLANATIONS & HEATMAP ---
 
-def get_prediction_for_image_file(image_path, vlm, processor, classifier, device):
+def get_prediction_for_image_file(image_path, vlm, processor, classifier, device, threshold=AI_THRESHOLD, use_tta=USE_TTA):
     """
     Runs the full pipeline for a single *image file*
     and returns a dictionary (JSON) with label, confidence, heatmap, and explanation.
     """
     try:
         img = Image.open(image_path).convert("RGB")
-        prediction_num = run_inference_on_image(img, vlm, processor, classifier, device)
+        prediction_num = run_inference_on_image(img, vlm, processor, classifier, device, use_tta=use_tta)
         
-        is_ai = prediction_num >= AI_THRESHOLD
+        is_ai = prediction_num >= threshold
         label = "AI" if is_ai else "Real"
         confidence = float(prediction_num if is_ai else 1 - prediction_num)
         
@@ -253,8 +253,8 @@ def get_prediction_for_image_file(image_path, vlm, processor, classifier, device
             "label": label,
             "confidence": confidence,
             "raw_probability": float(prediction_num),
-            "threshold": AI_THRESHOLD,
-            "tta_enabled": USE_TTA,
+            "threshold": threshold,
+            "tta_enabled": use_tta,
             "filename": os.path.basename(image_path)
         }
         if heatmap_data:
@@ -265,7 +265,7 @@ def get_prediction_for_image_file(image_path, vlm, processor, classifier, device
     except Exception as e:
         return {"error": f"Could not process file. {e}"}
 
-def process_video_file(video_path, vlm, processor, classifier, device):
+def process_video_file(video_path, vlm, processor, classifier, device, threshold=AI_THRESHOLD, use_tta=USE_TTA):
     """
     Runs the full pipeline for a *video file*.
     Samples up to MAX_FRAMES_PER_VIDEO frames, runs batched inference with TTA,
@@ -320,7 +320,7 @@ def process_video_file(video_path, vlm, processor, classifier, device):
 
         # Run fast batched inference with TTA
         frame_probabilities = run_inference_on_batch(
-            sampled_pil_images, vlm, processor, classifier, device
+            sampled_pil_images, vlm, processor, classifier, device, use_tta=use_tta
         )
 
         if not frame_probabilities:
@@ -329,7 +329,7 @@ def process_video_file(video_path, vlm, processor, classifier, device):
         # Identify the keyframe with the peak probability (most suspicious frame)
         max_idx = int(np.argmax(frame_probabilities))
         max_prob = float(frame_probabilities[max_idx])
-        is_ai = max_prob >= AI_THRESHOLD
+        is_ai = max_prob >= threshold
         label = "AI" if is_ai else "Real"
         confidence = float(max_prob if is_ai else 1 - max_prob)
         
@@ -341,8 +341,8 @@ def process_video_file(video_path, vlm, processor, classifier, device):
             "label": label,
             "confidence": confidence,
             "raw_probability": max_prob,
-            "threshold": AI_THRESHOLD,
-            "tta_enabled": USE_TTA,
+            "threshold": threshold,
+            "tta_enabled": use_tta,
             "frames_sampled": len(frame_probabilities),
             "keyframe_index": max_idx + 1,
             "filename": os.path.basename(video_path)
