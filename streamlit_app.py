@@ -1,3 +1,4 @@
+
 import os
 import inspect
 import tempfile
@@ -81,7 +82,7 @@ st.markdown("""
     .card-header p {
         margin-top: 0.5rem;
         margin-bottom: 0;
-        color: #4b5563;
+        color: #4b5663;
         font-size: 0.95rem;
     }
     
@@ -152,6 +153,32 @@ def blend_images(orig_pil: Image.Image, heat_pil: Image.Image, alpha_pct: int) -
         
     blended = cv2.addWeighted(orig_np, 1.0 - alpha, heat_np, alpha, 0)
     return Image.fromarray(blended)
+
+def extract_confidence_pct(data: dict):
+    """Extracts and normalizes confidence/probability percentage (0-100) from result dict."""
+    candidate_keys = [
+        "confidence", "probability", "prob", "score", 
+        "ai_probability", "real_probability", "confidence_score", "pct", "percentage"
+    ]
+    raw_val = None
+    for key in candidate_keys:
+        if key in data and data[key] is not None:
+            raw_val = data[key]
+            break
+
+    if raw_val is None:
+        return None
+
+    try:
+        if isinstance(raw_val, str):
+            raw_val = raw_val.replace("%", "").strip()
+        val = float(raw_val)
+        # Convert 0.0-1.0 float probabilities into 0-100 percentages
+        if 0.0 <= val <= 1.0:
+            val *= 100.0
+        return max(0.0, min(100.0, val))
+    except (ValueError, TypeError):
+        return None
 
 def render_image(img, caption=None):
     """Renders image compatibly across Streamlit versions without type checker or runtime errors."""
@@ -358,6 +385,7 @@ if uploaded_file is not None:
         label = data.get("label", "Real")
         frames_sampled = data.get("frames_sampled")
         keyframe_index = data.get("keyframe_index")
+        confidence_pct = extract_confidence_pct(data)
 
         is_ai = label.lower() == "ai"
         display_label = "AI" if is_ai else "REAL"
@@ -367,15 +395,32 @@ if uploaded_file is not None:
         box_border = "#b91c1c" if is_ai else "#15803d"
         card_bg = "#fef2f2" if is_ai else "#f0fdf4"
         card_border = "#fecaca" if is_ai else "#bbf7d0"
+        text_accent = "#991b1b" if is_ai else "#166534"
+
+        # Build HTML for confidence percentage + progress bar if available
+        confidence_html = ""
+        if confidence_pct is not None:
+            confidence_html = (
+                f'<div style="margin-top: 0.85rem; width: 100%; max-width: 220px;">'
+                f'<div style="display: flex; justify-content: space-between; font-size: 0.85rem; font-weight: 700; color: {text_accent}; margin-bottom: 0.3rem;">'
+                f'<span>Confidence</span>'
+                f'<span>{confidence_pct:.1f}%</span>'
+                f'</div>'
+                f'<div style="width: 100%; background-color: rgba(0,0,0,0.08); height: 8px; border-radius: 9999px; overflow: hidden;">'
+                f'<div style="width: {confidence_pct:.1f}%; background-color: {box_bg}; height: 100%; border-radius: 9999px;"></div>'
+                f'</div>'
+                f'</div>'
+            )
 
         with col_verdict:
             verdict_html = (
-                f'<div style="background-color: {card_bg}; border: 1px solid {card_border}; padding: 1.5rem; border-radius: 0.75rem; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); margin-bottom: 1.5rem; min-height: 155px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;">'
-                f'<div style="background-color: {box_bg}; border: 2px solid {box_border}; border-radius: 0.5rem; padding: 0.75rem 3rem; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(0,0,0,0.08);">'
-                f'<span style="font-size: 2.25rem; font-weight: 900; color: #ffffff; letter-spacing: 0.1em; line-height: 1;">'
+                f'<div style="background-color: {card_bg}; border: 1px solid {card_border}; padding: 1.25rem 1.5rem; border-radius: 0.75rem; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); margin-bottom: 1.5rem; min-height: 155px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;">'
+                f'<div style="background-color: {box_bg}; border: 2px solid {box_border}; border-radius: 0.5rem; padding: 0.6rem 2.75rem; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(0,0,0,0.08);">'
+                f'<span style="font-size: 2rem; font-weight: 900; color: #ffffff; letter-spacing: 0.1em; line-height: 1;">'
                 f'{display_label}'
                 f'</span>'
                 f'</div>'
+                f'{confidence_html}'
                 f'</div>'
             )
             st.markdown(verdict_html, unsafe_allow_html=True)
